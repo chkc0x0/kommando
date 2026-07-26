@@ -13,6 +13,17 @@ typedef enum
 	KOMMANDO_FLAG_STRING_LIST
 } kommando_flag_type;
 
+typedef enum
+{
+	KOMMANDO_OK,
+	KOMMANDO_ERR_UNKNOWN_FLAG,
+	KOMMANDO_ERR_UNEXPECTED_VALUE,
+	KOMMANDO_ERR_MISSING_VALUE,
+	KOMMANDO_ERR_TOO_MANY_ARGS,
+	KOMMANDO_ERR_MISSING_FLAG,
+	KOMMANDO_ERR_MISSING_POSITIONAL
+} kommando_result;
+
 typedef struct
 {
 	const char* long_name;

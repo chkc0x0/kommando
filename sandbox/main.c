@@ -1,5 +1,6 @@
 #include "args.h"
 #include "kommando/types.h"
+#include <stdio.h>
 
 typedef struct
 {
@@ -24,8 +25,8 @@ static kommando_flag flags[] = {
 		.short_name = 't',
 		.type = KOMMANDO_FLAG_INT,
 		.target = &opts.times,
-		.default_val = &(int){1},
 		.help = "how many times to repeat",
+		.required = true,
 	},
 	{
 		.long_name = "verbose",
@@ -38,5 +39,13 @@ static kommando_flag flags[] = {
 
 int main(int argc, const char** argv)
 {
-	return kommando_flags_parse(flags, sizeof(flags) / sizeof(kommando_flag), argc, argv);
+	int result =
+		kommando_flags_parse(flags, sizeof(flags) / sizeof(kommando_flag), argc, argv);
+
+	for (size_t i = 0; i < opts.times; i++)
+    {
+		printf("hello %s %s\n", opts.name, (int)opts.verbose ? "(verbose)" : "");
+	}
+
+	return result;
 }
