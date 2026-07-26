@@ -1,6 +1,7 @@
 .cache
 .vscode
 build
+builddir
 skia
 skia.zip
 .wraplock

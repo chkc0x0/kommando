@@ -1,19 +1,11 @@
 project(
     'kommando',
-    'cpp',
+    'c',
     version: '0.0.1',
-    default_options: ['cpp_std=c++20'],
+    default_options: ['c_std=c23'],
 )
 
 sources = []
-
-host_os = host_machine.system()
-
-if host_os == 'windows'
-    # windows stuff later
-else
-    sources += ['src/core/terminal_posix.cpp']
-endif
 
 kommando_lib = library(
     'kommando',
@@ -29,6 +21,6 @@ kommando_dep = declare_dependency(
 
 executable(
     'sandbox',
-    sources: 'sandbox/main.cpp',
+    sources: 'sandbox/main.c',
     dependencies: kommando_dep
 )
