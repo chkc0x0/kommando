@@ -104,15 +104,15 @@ kommando_result kommando_flags_parse(kommando_flag* flags, size_t count, int arg
 			size_t name_len = eq ? (size_t)(eq - name) : strlen(name);
 			const char* value = eq ? eq + 1 : nullptr;
 
-			kommando_flag* f = kommando_flag_find_long(flags, count, name, name_len);
-			if (!f)
+			kommando_flag* flag = kommando_flag_find_long(flags, count, name, name_len);
+			if (!flag)
 			{
 				return KOMMANDO_ERR_UNKNOWN_FLAG;
 			}
 
-			size_t idx = (size_t)(f - flags);
+			size_t idx = (size_t)(flag - flags);
 
-			if (f->type != KOMMANDO_FLAG_BOOL && !value)
+			if (flag->type != KOMMANDO_FLAG_BOOL && !value)
 			{
 				if (i + 1 >= argc)
 				{
@@ -121,7 +121,7 @@ kommando_result kommando_flags_parse(kommando_flag* flags, size_t count, int arg
 				value = argv[++i];
 			}
 
-			kommando_result r = kommando_flag_set(f, value);
+			kommando_result r = kommando_flag_set(flag, value);
 			if (r != KOMMANDO_OK)
 			{
 				return r;
@@ -133,16 +133,16 @@ kommando_result kommando_flags_parse(kommando_flag* flags, size_t count, int arg
 
 		if (arg_len >= 2 && arg [0] == '-' && arg[1] != '-')
 		{
-			kommando_flag* f = kommando_flag_find_short(flags, count, arg[1]);
-			if (!f)
+			kommando_flag* flag = kommando_flag_find_short(flags, count, arg[1]);
+			if (!flag)
 			{
 				return KOMMANDO_ERR_UNKNOWN_FLAG;
 			}
 
-			size_t idx = (size_t)(f - flags);
+			size_t idx = (size_t)(flag - flags);
 			const char* value = (arg[2] == '=') ? arg + 3 : nullptr;
 
-			if (f->type != KOMMANDO_FLAG_BOOL && !value)
+			if (flag->type != KOMMANDO_FLAG_BOOL && !value)
 			{
 				if (i + 1 >= argc)
 				{
@@ -151,7 +151,7 @@ kommando_result kommando_flags_parse(kommando_flag* flags, size_t count, int arg
 				value = argv[++i];
 			}
 
-			kommando_result r = kommando_flag_set(f, value);
+			kommando_result r = kommando_flag_set(flag, value);
 			if (r != KOMMANDO_OK)
 			{
 				return r;
