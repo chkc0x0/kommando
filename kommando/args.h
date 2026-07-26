@@ -13,6 +13,32 @@ typedef enum
 	KOMMANDO_FLAG_STRING_LIST
 } kommando_flag_type;
 
+typedef enum
+{
+	KOMMANDO_ARG_ERR_NONE = 0,
+	KOMMANDO_ARG_ERR_UNKNOWN_FLAG,
+	KOMMANDO_ARG_ERR_MISSING_VALUE,
+	KOMMANDO_ARG_ERR_MISSING_FLAG,
+	KOMMANDO_ARG_ERR_MISSING_POSITIONAL,
+	KOMMANDO_ARG_ERR_TOO_MANY_ARGS,
+	KOMMANDO_ARG_ERR_UNKNOWN_CMD,
+	KOMMANDO_ARG_ERR_INVALID_VALUE,
+	KOMMANDO_ARG_ERR_VALIDATION_FAILED,
+	KOMMANDO_ARG_ERR_OOM,
+} kommando_arg_error;
+
+typedef struct
+{
+	kommando_arg_error error;
+	const char* flag_name;
+	const char* offending_value;
+} kommando_arg_err_info;
+
+struct kommando_cmd;
+
+typedef void (*kommando_arg_err_handler)(struct kommando_cmd* cmd,
+										 const kommando_arg_err_info* info);
+
 typedef struct
 {
 	const char* long_name;
@@ -52,6 +78,8 @@ typedef struct kommando_cmd
 	int (*handler)(struct kommando_cmd* cmd);
 	void* user_data;
 	struct kommando_cmd* parent;
+
+	kommando_arg_err_handler on_error;
 } kommando_cmd;
 
 // populate command's parent fields

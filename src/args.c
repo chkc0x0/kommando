@@ -1,11 +1,67 @@
 #include "kommando/args.h"
 #include "kommando/list.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define KOMMANDO_INLINE_FLAGS 32
 #define KOMMANDO_INLINE_REST 32
 #define KOMMANDO_INLINE_SYNTH 8
+
+static const char* kommando_arg_err_to_string(kommando_arg_error err)
+{
+	switch (err)
+	{
+	case KOMMANDO_ARG_ERR_NONE:
+		return "no error";
+	case KOMMANDO_ARG_ERR_UNKNOWN_FLAG:
+		return "unknown flag";
+	case KOMMANDO_ARG_ERR_MISSING_VALUE:
+		return "missing value for flag";
+	case KOMMANDO_ARG_ERR_MISSING_FLAG:
+		return "missing required flag";
+	case KOMMANDO_ARG_ERR_MISSING_POSITIONAL:
+		return "missing required argument";
+	case KOMMANDO_ARG_ERR_TOO_MANY_ARGS:
+		return "too many arguments";
+	case KOMMANDO_ARG_ERR_UNKNOWN_CMD:
+		return "unknown command";
+	case KOMMANDO_ARG_ERR_INVALID_VALUE:
+		return "invalid value";
+	case KOMMANDO_ARG_ERR_VALIDATION_FAILED:
+		return "validation failed";
+	case KOMMANDO_ARG_ERR_OOM:
+		return "out of memory";
+	default:
+		return "unknown error";
+	}
+}
+
+static void kommando_default_error_handler(kommando_cmd* cmd,
+										   const kommando_arg_err_info* info)
+{
+	if (info->flag_name)
+	{
+		fprintf(stderr, "%s: %s: %s\n", cmd->name, info->flag_name,
+				kommando_arg_err_to_string(info->error));
+	}
+	else
+	{
+		fprintf(stderr, "%s: %s\n", cmd->name, kommando_arg_err_to_string(info->error));
+	}
+}
+
+static kommando_arg_err_handler kommando_resolve_error_handler(kommando_cmd* cmd)
+{
+	for (kommando_cmd* c = cmd; c; c = c->parent)
+	{
+		if (c->on_error)
+		{
+			return c->on_error;
+		}
+	}
+	return kommando_default_error_handler;
+}
 
 static kommando_flag* kommando_flag_find_long(kommando_flag* f, size_t n,
 											  const char* name, size_t len)
@@ -33,7 +89,8 @@ static kommando_flag* kommando_flag_find_short(kommando_flag* f, size_t n, char 
 	return nullptr;
 }
 
-static kommando_result kommando_flag_set(kommando_flag* f, const char* value)
+static kommando_result kommando_flag_set(kommando_flag* f, const char* value,
+										 kommando_arg_err_info* errInfo)
 {
 	switch (f->type)
 	{
@@ -43,14 +100,20 @@ static kommando_result kommando_flag_set(kommando_flag* f, const char* value)
 	case KOMMANDO_FLAG_INT:
 		if (!value)
 		{
-			return KOMMANDO_ERR_MISSING_VALUE;
+			errInfo->error = KOMMANDO_ARG_ERR_MISSING_VALUE;
+			errInfo->flag_name = f->long_name;
+			errInfo->offending_value = nullptr;
+			return KOMMANDO_ERR_ARG_PARSE;
 		}
 		*(int*)f->target = atoi(value);
 		break;
 	case KOMMANDO_FLAG_STRING:
 		if (!value)
 		{
-			return KOMMANDO_ERR_MISSING_VALUE;
+			errInfo->error = KOMMANDO_ARG_ERR_MISSING_VALUE;
+			errInfo->flag_name = f->long_name;
+			errInfo->offending_value = nullptr;
+			return KOMMANDO_ERR_ARG_PARSE;
 		}
 		*(const char**)f->target = value;
 		break;
@@ -134,12 +197,10 @@ static kommando_result kommando_positional_set(kommando_positional* p, const cha
 	return KOMMANDO_OK;
 }
 
-static kommando_result kommando_consume_flags(kommando_flag* flags, size_t flagCount,
-											  int argc, const char** argv, bool strict,
-											  bool* flagSet, const char** rest,
-											  size_t* restCount, const char** synthFree,
-											  size_t synthFreeCapacity,
-											  size_t* synthFreeCount)
+static kommando_result kommando_consume_flags(
+	kommando_flag* flags, size_t flagCount, int argc, const char** argv, bool strict,
+	bool* flagSet, const char** rest, size_t* restCount, const char** synthFree,
+	size_t synthFreeCapacity, size_t* synthFreeCount, kommando_arg_err_info* errInfo)
 {
 	size_t rc = 0;
 	size_t sfc = 0;
@@ -169,7 +230,10 @@ static kommando_result kommando_consume_flags(kommando_flag* flags, size_t flagC
 			{
 				if (strict)
 				{
-					return KOMMANDO_ERR_UNKNOWN_FLAG;
+					errInfo->error = KOMMANDO_ARG_ERR_UNKNOWN_FLAG;
+					errInfo->flag_name = name;
+					errInfo->offending_value = nullptr;
+					return KOMMANDO_ERR_ARG_PARSE;
 				}
 				rest[rc++] = arg;
 				i++;
@@ -183,12 +247,15 @@ static kommando_result kommando_consume_flags(kommando_flag* flags, size_t flagC
 			{
 				if (i + 1 >= argc)
 				{
-					return KOMMANDO_ERR_MISSING_VALUE;
+					errInfo->error = KOMMANDO_ARG_ERR_MISSING_VALUE;
+					errInfo->flag_name = flag->long_name;
+					errInfo->offending_value = nullptr;
+					return KOMMANDO_ERR_ARG_PARSE;
 				}
 				value = argv[++i];
 			}
 
-			kommando_result r = kommando_flag_set(flag, value);
+			kommando_result r = kommando_flag_set(flag, value, errInfo);
 			if (r != KOMMANDO_OK)
 			{
 				return r;
@@ -212,11 +279,17 @@ static kommando_result kommando_consume_flags(kommando_flag* flags, size_t flagC
 				{
 					if (strict)
 					{
-						return KOMMANDO_ERR_UNKNOWN_FLAG;
+						errInfo->error = KOMMANDO_ARG_ERR_UNKNOWN_FLAG;
+						errInfo->flag_name = nullptr;
+						errInfo->offending_value = cur;
+						return KOMMANDO_ERR_ARG_PARSE;
 					}
 					if (synth_len + 1 >= sizeof(synth_buf))
 					{
-						return KOMMANDO_ERR_TOO_MANY_ARGS;
+						errInfo->error = KOMMANDO_ARG_ERR_TOO_MANY_ARGS;
+						errInfo->flag_name = nullptr;
+						errInfo->offending_value = arg;
+						return KOMMANDO_ERR_ARG_PARSE;
 					}
 					synth_buf[synth_len++] = *cur;
 					cur++;
@@ -247,7 +320,7 @@ static kommando_result kommando_consume_flags(kommando_flag* flags, size_t flagC
 
 				if (flag->type == KOMMANDO_FLAG_BOOL || flag->type == KOMMANDO_FLAG_COUNT)
 				{
-					kommando_flag_set(flag, nullptr);
+					kommando_flag_set(flag, nullptr, errInfo);
 					flagSet[idx] = true;
 					continue;
 				}
@@ -267,12 +340,15 @@ static kommando_result kommando_consume_flags(kommando_flag* flags, size_t flagC
 				{
 					if (i + 1 >= argc)
 					{
-						return KOMMANDO_ERR_MISSING_VALUE;
+						errInfo->error = KOMMANDO_ARG_ERR_MISSING_VALUE;
+						errInfo->flag_name = flag->long_name;
+						errInfo->offending_value = nullptr;
+						return KOMMANDO_ERR_ARG_PARSE;
 					}
 					value = argv[++i];
 				}
 
-				kommando_result r = kommando_flag_set(flag, value);
+				kommando_result r = kommando_flag_set(flag, value, errInfo);
 				if (r != KOMMANDO_OK)
 				{
 					return r;
@@ -325,7 +401,8 @@ void kommando_cmd_finalize(kommando_cmd* cmd)
 	}
 }
 
-static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf, int argc,
+static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
+										 kommando_arg_err_info* errInfo, int argc,
 										 const char** argv)
 {
 	if (cmd->subcommands && cmd->subcommand_count > 0 && argc > 1)
@@ -382,7 +459,7 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 
 		kommando_result r = kommando_consume_flags(
 			cmd->flags, cmd->flag_count, argc, argv, false, flag_set, rest, &rest_count,
-			synth_free, synth_capacity, &synth_count);
+			synth_free, synth_capacity, &synth_count, errInfo);
 
 		if (r != KOMMANDO_OK)
 		{
@@ -394,7 +471,10 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 		{
 			if (cmd->flags[j].required && !flag_set[j])
 			{
-				r = KOMMANDO_ERR_MISSING_FLAG;
+				errInfo->error = KOMMANDO_ARG_ERR_MISSING_FLAG;
+				errInfo->flag_name = cmd->flags[j].long_name;
+				errInfo->offending_value = nullptr;
+				r = KOMMANDO_ERR_ARG_PARSE;
 				goto descent_cleanup;
 			}
 		}
@@ -421,7 +501,10 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 
 			if (sub_cmd_idx < 0)
 			{
-				r = KOMMANDO_ERR_UNKNOWN_CMD;
+				errInfo->error = KOMMANDO_ARG_ERR_UNKNOWN_CMD;
+				errInfo->flag_name = nullptr;
+				errInfo->offending_value = (rest_count > 0) ? rest[0] : nullptr;
+				r = KOMMANDO_ERR_ARG_PARSE;
 				goto descent_cleanup;
 			}
 
@@ -448,7 +531,7 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 				}
 			}
 
-			r = kommando_do_parse(&cmd->subcommands[sub_cmd_idx], leaf,
+			r = kommando_do_parse(&cmd->subcommands[sub_cmd_idx], leaf, errInfo,
 								  (int)filtered_count, filtered);
 			if (filtered != filtered_inline)
 			{
@@ -582,9 +665,9 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 		}
 	}
 
-	result =
-		kommando_consume_flags(flags, flag_count, argc, argv, true, flag_set, rest,
-							   &rest_count, synth_free, synth_capacity, &synth_count);
+	result = kommando_consume_flags(flags, flag_count, argc, argv, true, flag_set, rest,
+									&rest_count, synth_free, synth_capacity, &synth_count,
+									errInfo);
 
 	if (result != KOMMANDO_OK)
 	{
@@ -607,7 +690,10 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 
 				if (pos_idx >= pos_count)
 				{
-					result = KOMMANDO_ERR_TOO_MANY_ARGS;
+					errInfo->error = KOMMANDO_ARG_ERR_TOO_MANY_ARGS;
+					errInfo->flag_name = nullptr;
+					errInfo->offending_value = rest[ri];
+					result = KOMMANDO_ERR_ARG_PARSE;
 					goto leaf_cleanup;
 				}
 				pos = &positionals[pos_idx];
@@ -626,7 +712,10 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 
 		if (ri < rest_count)
 		{
-			result = KOMMANDO_ERR_TOO_MANY_ARGS;
+			errInfo->error = KOMMANDO_ARG_ERR_TOO_MANY_ARGS;
+			errInfo->flag_name = nullptr;
+			errInfo->offending_value = rest[ri];
+			result = KOMMANDO_ERR_ARG_PARSE;
 			goto leaf_cleanup;
 		}
 	}
@@ -637,7 +726,10 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 	{
 		if (flags[j].required && !flag_set[j])
 		{
-			result = KOMMANDO_ERR_MISSING_FLAG;
+			errInfo->error = KOMMANDO_ARG_ERR_MISSING_FLAG;
+			errInfo->flag_name = flags[j].long_name;
+			errInfo->offending_value = nullptr;
+			result = KOMMANDO_ERR_ARG_PARSE;
 			goto leaf_cleanup;
 		}
 	}
@@ -646,7 +738,10 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 	{
 		if (pos_seen[p] < positionals[p].min_count)
 		{
-			result = KOMMANDO_ERR_MISSING_POSITIONAL;
+			errInfo->error = KOMMANDO_ARG_ERR_MISSING_POSITIONAL;
+			errInfo->flag_name = positionals[p].name;
+			errInfo->offending_value = nullptr;
+			result = KOMMANDO_ERR_ARG_PARSE;
 			goto leaf_cleanup;
 		}
 	}
@@ -678,11 +773,18 @@ leaf_cleanup:
 kommando_result kommando_parse(kommando_cmd* cmd, int argc, const char** argv)
 {
 	kommando_cmd* leaf = nullptr;
-	kommando_result r = kommando_do_parse(cmd, &leaf, argc, argv);
+	kommando_arg_err_info err_info = {0};
+
+	kommando_result r = kommando_do_parse(cmd, &leaf, &err_info, argc, argv);
+
 	if (r != KOMMANDO_OK)
 	{
+		kommando_cmd* context_cmd = leaf ? leaf : cmd;
+		kommando_arg_err_handler handler = kommando_resolve_error_handler(context_cmd);
+		handler(context_cmd, &err_info);
 		return r;
 	}
+
 	if (leaf && leaf->handler)
 	{
 		return leaf->handler(leaf);
@@ -693,5 +795,6 @@ kommando_result kommando_parse(kommando_cmd* cmd, int argc, const char** argv)
 kommando_result kommando_parse_nodispatch(kommando_cmd* cmd, kommando_cmd** leaf,
 										  int argc, const char** argv)
 {
-	return kommando_do_parse(cmd, leaf, argc, argv);
+	kommando_arg_err_info err_info = {0};
+	return kommando_do_parse(cmd, leaf, &err_info, argc, argv);
 }
