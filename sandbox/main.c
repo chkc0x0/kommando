@@ -1,20 +1,31 @@
-#include "args.h"
-#include "list.h"
-#include "kommando/types.h"
-#include <stdio.h>
+#include "kommando/args.h"
 
 typedef struct
 {
 	const char* name;
 	int times;
 	bool verbose;
-	const char* package;
-	kommando_list packages;
-} greet_opts;
+} greet_opts_t;
 
-static greet_opts opts = {0};
+static greet_opts_t opts = {nullptr};
 
-static kommando_flag flags[] = {
+static kommando_flag say_flags[] = {
+	{
+		.long_name = "name",
+		.short_name = 'n',
+		.type = KOMMANDO_FLAG_STRING,
+		.target = (void*)&opts.name,
+		.default_val = (void*)&(const char*){"world"},
+		.help = "who to greet",
+	},
+	{
+		.long_name = "times",
+		.short_name = 't',
+		.type = KOMMANDO_FLAG_INT,
+		.target = &opts.times,
+		.default_val = &(int){1},
+		.help = "how many times to repeat",
+	},
 	{
 		.long_name = "verbose",
 		.short_name = 'v',
@@ -24,51 +35,27 @@ static kommando_flag flags[] = {
 	},
 };
 
-static kommando_positional positionals[] = {
+static kommando_cmd subs[] = {
 	{
-		.name = "greeting",
-		.type = KOMMANDO_FLAG_STRING,
-		.target = &opts.name,
-		.required = true,
+		.name = "say",
+		.help = "from flags",
+		.flags = say_flags,
+		.flag_count = 3,
 	},
 	{
-		.name = "times",
-		.type = KOMMANDO_FLAG_INT,
-		.target = &opts.times,
+		.name = "ask",
+		.help = "ask for name",
 	},
-	{
-		.name = "packages",
-		.type = KOMMANDO_FLAG_STRING_LIST,
-		.target = &opts.packages,
-		.required = true,
-	},
+};
+
+static kommando_cmd root = {
+	.name = "greet",
+	.help = "for greeting",
+	.subcommands = subs,
+	.subcommand_count = 2,
 };
 
 int main(int argc, const char** argv)
 {
-	kommando_result result =
-		kommando_parse(flags, sizeof(flags) / sizeof(*flags),
-					   positionals, sizeof(positionals) / sizeof(*positionals),
-					   argc, argv);
-
-	if (result != KOMMANDO_OK)
-	{
-		fprintf(stderr, "error: %s\n",
-				result == KOMMANDO_ERR_UNKNOWN_FLAG		? "unknown flag"
-				: result == KOMMANDO_ERR_MISSING_VALUE	? "missing value for flag"
-				: result == KOMMANDO_ERR_MISSING_FLAG	? "missing required flag"
-				: result == KOMMANDO_ERR_TOO_MANY_ARGS	? "too many arguments"
-				: result == KOMMANDO_ERR_MISSING_POSITIONAL ? "missing required positional"
-														   : "parse error");
-		return 1;
-	}
-
-	printf("name=%s times=%d verbose=%d\n", opts.name, opts.times, (int)opts.verbose);
-	for (size_t i = 0; i < opts.packages.size; i++)
-	{
-		printf("package[%zu]=%s\n", i, ((const char**)opts.packages.data)[i]);
-	}
-
-	kommando_list_destroy(&opts.packages);
-	return 0;
+	return kommando_parse(&root, argc, argv);
 }

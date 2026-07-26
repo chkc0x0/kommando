@@ -1,5 +1,5 @@
-#include "args.h"
-#include "list.h"
+#include "kommando/args.h"
+#include "kommando/list.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -98,7 +98,7 @@ static kommando_result kommando_positional_set(kommando_positional* p, const cha
 	case KOMMANDO_FLAG_STRING_LIST:
 	{
 		kommando_list* list = p->target;
-		kommando_result r = kommando_list_add(list, &value);
+		kommando_result r = kommando_list_add(list, (void*)&value);
 		if (r != KOMMANDO_OK)
 		{
 			return r;
@@ -122,17 +122,33 @@ static kommando_result kommando_positional_set(kommando_positional* p, const cha
 	return KOMMANDO_OK;
 }
 
-kommando_result kommando_parse(kommando_flag* flags, size_t flagCount,
-							   kommando_positional* positionals, size_t posCount,
-							   int argc, const char** argv)
+kommando_result kommando_parse(kommando_cmd* cmd, int argc, const char** argv)
 {
-	bool flag_set[flagCount];
+	if (cmd->subcommands && cmd->subcommand_count > 0 && argc > 1)
+	{
+		const char* name = argv[1];
+		for (size_t s = 0; s < cmd->subcommand_count; s++)
+		{
+			if (strcmp(cmd->subcommands[s].name, name) == 0)
+			{
+				return kommando_parse(&cmd->subcommands[s], argc - 1, argv + 1);
+			}
+		}
+		return KOMMANDO_ERR_UNKNOWN_CMD;
+	}
+
+	kommando_flag* flags = cmd->flags;
+	size_t flag_count = cmd->flag_count;
+	kommando_positional* positionals = cmd->positionals;
+	size_t pos_count = cmd->positional_count;
+
+	bool flag_set[flag_count];
 	memset(flag_set, 0, sizeof(flag_set));
 
 	const char* rest[argc];
 	size_t rest_count = 0;
 
-	for (size_t p = 0; p < posCount; p++)
+	for (size_t p = 0; p < pos_count; p++)
 	{
 		if (positionals[p].min_count == 0 && positionals[p].required)
 		{
@@ -144,7 +160,7 @@ kommando_result kommando_parse(kommando_flag* flags, size_t flagCount,
 		}
 	}
 
-	for (size_t p = 0; p < posCount; p++)
+	for (size_t p = 0; p < pos_count; p++)
 	{
 		if (kommando_is_list_type(positionals[p].type))
 		{
@@ -175,7 +191,7 @@ kommando_result kommando_parse(kommando_flag* flags, size_t flagCount,
 			size_t name_len = eq ? (size_t)(eq - name) : strlen(name);
 			const char* value = eq ? eq + 1 : nullptr;
 
-			kommando_flag* flag = kommando_flag_find_long(flags, flagCount, name, name_len);
+			kommando_flag* flag = kommando_flag_find_long(flags, flag_count, name, name_len);
 			if (!flag)
 			{
 				return KOMMANDO_ERR_UNKNOWN_FLAG;
@@ -204,7 +220,7 @@ kommando_result kommando_parse(kommando_flag* flags, size_t flagCount,
 
 		if (arg_len >= 2 && arg[0] == '-' && arg[1] != '-')
 		{
-			kommando_flag* flag = kommando_flag_find_short(flags, flagCount, arg[1]);
+			kommando_flag* flag = kommando_flag_find_short(flags, flag_count, arg[1]);
 			if (!flag)
 			{
 				return KOMMANDO_ERR_UNKNOWN_FLAG;
@@ -241,11 +257,11 @@ kommando_result kommando_parse(kommando_flag* flags, size_t flagCount,
 		rest[rest_count++] = argv[i++];
 	}
 
-	size_t r = 0;
+	size_t ri = 0;
 	size_t pos_idx = 0;
 	size_t pos_collected = 0;
 
-	while (r < rest_count && pos_idx < posCount)
+	while (ri < rest_count && pos_idx < pos_count)
 	{
 		kommando_positional* pos = &positionals[pos_idx];
 
@@ -254,30 +270,30 @@ kommando_result kommando_parse(kommando_flag* flags, size_t flagCount,
 			pos_idx++;
 			pos_collected = 0;
 
-			if (pos_idx >= posCount)
+			if (pos_idx >= pos_count)
 			{
 				return KOMMANDO_ERR_TOO_MANY_ARGS;
 			}
 			pos = &positionals[pos_idx];
 		}
 
-		kommando_result set_r = kommando_positional_set(pos, rest[r]);
+		kommando_result set_r = kommando_positional_set(pos, rest[ri]);
 		if (set_r != KOMMANDO_OK)
 		{
 			return set_r;
 		}
 		pos_collected++;
-		r++;
+		ri++;
 	}
 
-	if (r < rest_count)
+	if (ri < rest_count)
 	{
 		return KOMMANDO_ERR_TOO_MANY_ARGS;
 	}
 
-	kommando_flags_apply_defaults(flags, flagCount);
+	kommando_flags_apply_defaults(flags, flag_count);
 
-	for (size_t j = 0; j < flagCount; j++)
+	for (size_t j = 0; j < flag_count; j++)
 	{
 		if (flags[j].required && !flag_set[j])
 		{
@@ -285,7 +301,7 @@ kommando_result kommando_parse(kommando_flag* flags, size_t flagCount,
 		}
 	}
 
-	for (size_t p = 0; p < posCount; p++)
+	for (size_t p = 0; p < pos_count; p++)
 	{
 		size_t collected = 0;
 

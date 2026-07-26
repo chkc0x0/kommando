@@ -21,7 +21,8 @@ typedef enum
 	KOMMANDO_ERR_MISSING_VALUE,
 	KOMMANDO_ERR_TOO_MANY_ARGS,
 	KOMMANDO_ERR_MISSING_FLAG,
-	KOMMANDO_ERR_MISSING_POSITIONAL
+	KOMMANDO_ERR_MISSING_POSITIONAL,
+	KOMMANDO_ERR_UNKNOWN_CMD
 } kommando_result;
 
 typedef struct
@@ -46,7 +47,7 @@ typedef struct
 	size_t max_count;
 } kommando_positional;
 
-typedef struct
+typedef struct kommando_cmd
 {
 	const char* name;
 	const char* help;
@@ -56,7 +57,7 @@ typedef struct
 
 	kommando_positional* positionals;
 	size_t positional_count;
-	
+
 	struct kommando_cmd* subcommands;
 	size_t subcommand_count;
 } kommando_cmd;
