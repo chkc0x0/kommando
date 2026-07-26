@@ -1,37 +1,37 @@
 Checks: "performance-*,readability-*,modernize-*,bugprone-*,-bugprone-easily-swappable-parameters,-modernize-use-ranges,-readability-identifier-length,-readability-magic-numbers"
 CheckOptions:
   - key: readability-identifier-naming.ClassCase
-    value: "CamelCase"
+    value: "lower_case"
   - key: readability-identifier-naming.NamespaceCase
     value: "CamelCase"
   - key: readability-identifier-naming.ClassConstantCase
-    value: "CamelCase"
+    value: "lower_case"
   - key: readability-identifier-naming.ClassMemberCase
     value: "camelBack"
   - key: readability-identifier-naming.ClassMethodCase
     value: "CamelCase"
   - key: readability-identifier-naming.ConstantCase
-    value: "CamelCase"
+    value: "UPPER_CASE"
   - key: readability-identifier-naming.NamespaceCase
-    value: "snake_case"
+    value: "CamelCase"
   - key: readability-identifier-naming.EnumCase
     value: "CamelCase"
   - key: readability-identifier-naming.FunctionCase
-    value: "CamelCase"
+    value: "lower_case"
   - key: readability-identifier-naming.GlobalFunctionCase
-    value: "camelBack"
+    value: "lower_case"
   - key: readability-identifier-naming.GlobalFunctionIgnoredRegexp
     value: "_.+"
   - key: readability-identifier-naming.IgnoreMainLikeFunctions
     value: true
   - key: readability-identifier-naming.MacroDefinitionCase
-    value: "camelBack"
+    value: "lower_case"
   - key: readability-identifier-naming.MacroDefinitionPrefix
-    value: "mc_"
+    value: "ko_"
   - key: readability-identifier-naming.MemberCase
-    value: "CamelCase"
+    value: "lower_case"
   - key: readability-identifier-naming.MethodCase
-    value: "CamelCase"
+    value: "lower_case"
   - key: readability-identifier-naming.ParameterCase
     value: "camelBack"
   - key: readability-identifier-naming.PrivateMemberCase

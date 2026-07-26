@@ -5,7 +5,7 @@ project(
     default_options: ['c_std=c23'],
 )
 
-sources = []
+sources = ['src/args.c']
 
 kommando_lib = library(
     'kommando',
@@ -19,8 +19,4 @@ kommando_dep = declare_dependency(
     include_directories: include_directories('kommando'),
 )
 
-executable(
-    'sandbox',
-    sources: 'sandbox/main.c',
-    dependencies: kommando_dep
-)
+executable('sandbox', sources: 'sandbox/main.c', dependencies: kommando_dep)
