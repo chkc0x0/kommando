@@ -10,13 +10,13 @@ sources = ['src/args.c', 'src/list.c']
 kommando_lib = library(
     'kommando',
     sources: sources,
-    include_directories: include_directories('kommando'),
+    include_directories: include_directories('kommando', '.'),
     install: true,
 )
 
 kommando_dep = declare_dependency(
     link_with: kommando_lib,
-    include_directories: include_directories('kommando'),
+    include_directories: include_directories('kommando', '.'),
 )
 
 meson.override_dependency('kommando', kommando_dep)
