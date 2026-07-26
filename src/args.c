@@ -132,6 +132,7 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 		{
 			if (strcmp(cmd->subcommands[s].name, name) == 0)
 			{
+				cmd->subcommands[s].parent = cmd;
 				return kommando_do_parse(&cmd->subcommands[s], leaf, argc - 1, argv + 1);
 			}
 		}
@@ -346,7 +347,7 @@ kommando_result kommando_parse(kommando_cmd* cmd, int argc, const char** argv)
 	}
 	if (leaf && leaf->handler)
 	{
-		return leaf->handler();
+		return leaf->handler(leaf);
 	}
 	return KOMMANDO_OK;
 }

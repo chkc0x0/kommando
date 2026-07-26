@@ -48,7 +48,9 @@ typedef struct kommando_cmd
 	struct kommando_cmd* subcommands;
 	size_t subcommand_count;
 
-	int (*handler)();
+	int (*handler)(struct kommando_cmd* cmd);
+	void* user_data;
+	struct kommando_cmd* parent;
 } kommando_cmd;
 
 kommando_result kommando_parse(kommando_cmd* cmd, int argc, const char** argv);

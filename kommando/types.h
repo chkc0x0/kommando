@@ -7,6 +7,8 @@ typedef struct kommando_ctx_t kommando_ctx;
 typedef enum
 {
 	KOMMANDO_OK,
+
+	// arg parsing
 	KOMMANDO_ERR_UNKNOWN_FLAG,
 	KOMMANDO_ERR_UNEXPECTED_VALUE,
 	KOMMANDO_ERR_MISSING_VALUE,
