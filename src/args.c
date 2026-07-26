@@ -122,7 +122,8 @@ static kommando_result kommando_positional_set(kommando_positional* p, const cha
 	return KOMMANDO_OK;
 }
 
-kommando_result kommando_parse(kommando_cmd* cmd, int argc, const char** argv)
+static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
+										 int argc, const char** argv)
 {
 	if (cmd->subcommands && cmd->subcommand_count > 0 && argc > 1)
 	{
@@ -131,11 +132,13 @@ kommando_result kommando_parse(kommando_cmd* cmd, int argc, const char** argv)
 		{
 			if (strcmp(cmd->subcommands[s].name, name) == 0)
 			{
-				return kommando_parse(&cmd->subcommands[s], argc - 1, argv + 1);
+				return kommando_do_parse(&cmd->subcommands[s], leaf, argc - 1, argv + 1);
 			}
 		}
 		return KOMMANDO_ERR_UNKNOWN_CMD;
 	}
+
+	*leaf = cmd;
 
 	kommando_flag* flags = cmd->flags;
 	size_t flag_count = cmd->flag_count;
@@ -331,4 +334,25 @@ kommando_result kommando_parse(kommando_cmd* cmd, int argc, const char** argv)
 	}
 
 	return KOMMANDO_OK;
+}
+
+kommando_result kommando_parse(kommando_cmd* cmd, int argc, const char** argv)
+{
+	kommando_cmd* leaf = nullptr;
+	kommando_result r = kommando_do_parse(cmd, &leaf, argc, argv);
+	if (r != KOMMANDO_OK)
+	{
+		return r;
+	}
+	if (leaf && leaf->handler)
+	{
+		return leaf->handler();
+	}
+	return KOMMANDO_OK;
+}
+
+kommando_result kommando_parse_nodispatch(kommando_cmd* cmd, kommando_cmd** leaf,
+										   int argc, const char** argv)
+{
+	return kommando_do_parse(cmd, leaf, argc, argv);
 }
