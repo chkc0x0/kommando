@@ -252,7 +252,6 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 					continue;
 				}
 
-				// non-bool: value is rest of string after =, or next char
 				const char* value = nullptr;
 				if (*cur == '=')
 				{
