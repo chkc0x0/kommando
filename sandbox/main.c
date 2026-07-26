@@ -82,6 +82,7 @@ static kommando_cmd root = {
 
 int main(int argc, const char** argv)
 {
+	kommando_cmd_finalize(&root);
 	kommando_result r = kommando_parse(&root, argc, argv);
 
 	printf("%d %d %d %d\n", opts.verbose, opts.verbose2, opts.verbose3, opts.queue);

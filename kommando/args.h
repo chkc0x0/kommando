@@ -54,6 +54,9 @@ typedef struct kommando_cmd
 	struct kommando_cmd* parent;
 } kommando_cmd;
 
+// populate command's parent fields
+void kommando_cmd_finalize(kommando_cmd* cmd);
+
 kommando_result kommando_parse(kommando_cmd* cmd, int argc, const char** argv);
 kommando_result kommando_parse_nodispatch(kommando_cmd* cmd, kommando_cmd** leaf,
 										  int argc, const char** argv);

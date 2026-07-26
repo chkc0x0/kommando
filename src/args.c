@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define KOMMANDO_INLINE_FLAGS 32
+#define KOMMANDO_INLINE_REST 32
+
 static kommando_flag* kommando_flag_find_long(kommando_flag* f, size_t n, const char* name, size_t len)
 {
 	for (size_t i = 0; i < n; i++)
@@ -128,6 +131,15 @@ static kommando_result kommando_positional_set(kommando_positional* p, const cha
 	return KOMMANDO_OK;
 }
 
+void kommando_cmd_finalize(kommando_cmd* cmd)
+{
+	for (size_t s = 0; s < cmd->subcommand_count; s++)
+	{
+		cmd->subcommands[s].parent = cmd;
+		kommando_cmd_finalize(&cmd->subcommands[s]);
+	}
+}
+
 static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 										 int argc, const char** argv)
 {
@@ -138,7 +150,6 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 		{
 			if (strcmp(cmd->subcommands[s].name, name) == 0)
 			{
-				cmd->subcommands[s].parent = cmd;
 				return kommando_do_parse(&cmd->subcommands[s], leaf, argc - 1, argv + 1);
 			}
 		}
@@ -152,11 +163,55 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 	kommando_positional* positionals = cmd->positionals;
 	size_t pos_count = cmd->positional_count;
 
-	bool flag_set[flag_count];
-	memset(flag_set, 0, sizeof(flag_set));
+	kommando_result result = KOMMANDO_OK;
 
-	const char* rest[argc];
+	bool flag_set_inline[KOMMANDO_INLINE_FLAGS];
+	bool* flag_set = flag_set_inline;
+	if (flag_count > KOMMANDO_INLINE_FLAGS)
+	{
+		flag_set = malloc(flag_count * sizeof(bool));
+		if (!flag_set)
+		{
+			return KOMMANDO_ERR_OOM;
+		}
+	}
+	memset(flag_set, 0, flag_count * sizeof(bool));
+
+	const char* rest_inline[KOMMANDO_INLINE_REST];
+	const char** rest = rest_inline;
+	if ((size_t)argc > KOMMANDO_INLINE_REST)
+	{
+		rest = (const char**)malloc((size_t)argc * sizeof(const char*));
+		if (!rest)
+		{
+			if (flag_set != flag_set_inline)
+			{
+				free(flag_set);
+			}
+			return KOMMANDO_ERR_OOM;
+		}
+	}
 	size_t rest_count = 0;
+
+	size_t pos_seen_inline[KOMMANDO_INLINE_FLAGS];
+	size_t* pos_seen = pos_seen_inline;
+	if (pos_count > KOMMANDO_INLINE_FLAGS)
+	{
+		pos_seen = malloc(pos_count * sizeof(size_t));
+		if (!pos_seen)
+		{
+			if (rest != rest_inline)
+			{
+				free((void*)rest);
+			}
+			if (flag_set != flag_set_inline)
+			{
+				free(flag_set);
+			}
+			return KOMMANDO_ERR_OOM;
+		}
+	}
+	memset(pos_seen, 0, pos_count * sizeof(size_t));
 
 	for (size_t p = 0; p < pos_count; p++)
 	{
@@ -204,7 +259,8 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 			kommando_flag* flag = kommando_flag_find_long(flags, flag_count, name, name_len);
 			if (!flag)
 			{
-				return KOMMANDO_ERR_UNKNOWN_FLAG;
+				result = KOMMANDO_ERR_UNKNOWN_FLAG;
+				goto cleanup;
 			}
 
 			size_t idx = (size_t)(flag - flags);
@@ -214,7 +270,8 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 			{
 				if (i + 1 >= argc)
 				{
-					return KOMMANDO_ERR_MISSING_VALUE;
+					result = KOMMANDO_ERR_MISSING_VALUE;
+					goto cleanup;
 				}
 				value = argv[++i];
 			}
@@ -222,7 +279,8 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 			kommando_result r = kommando_flag_set(flag, value);
 			if (r != KOMMANDO_OK)
 			{
-				return r;
+				result = r;
+				goto cleanup;
 			}
 			flag_set[idx] = true;
 			i++;
@@ -238,7 +296,8 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 				kommando_flag* flag = kommando_flag_find_short(flags, flag_count, *cur);
 				if (!flag)
 				{
-					return KOMMANDO_ERR_UNKNOWN_FLAG;
+					result = KOMMANDO_ERR_UNKNOWN_FLAG;
+					goto cleanup;
 				}
 
 				size_t idx = (size_t)(flag - flags);
@@ -267,7 +326,8 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 				{
 					if (i + 1 >= argc)
 					{
-						return KOMMANDO_ERR_MISSING_VALUE;
+						result = KOMMANDO_ERR_MISSING_VALUE;
+						goto cleanup;
 					}
 					value = argv[++i];
 				}
@@ -275,7 +335,8 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 				kommando_result r = kommando_flag_set(flag, value);
 				if (r != KOMMANDO_OK)
 				{
-					return r;
+					result = r;
+					goto cleanup;
 				}
 				flag_set[idx] = true;
 			}
@@ -308,7 +369,8 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 
 			if (pos_idx >= pos_count)
 			{
-				return KOMMANDO_ERR_TOO_MANY_ARGS;
+				result = KOMMANDO_ERR_TOO_MANY_ARGS;
+				goto cleanup;
 			}
 			pos = &positionals[pos_idx];
 		}
@@ -316,15 +378,18 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 		kommando_result set_r = kommando_positional_set(pos, rest[ri]);
 		if (set_r != KOMMANDO_OK)
 		{
-			return set_r;
+			result = set_r;
+			goto cleanup;
 		}
+		pos_seen[pos_idx]++;
 		pos_collected++;
 		ri++;
 	}
 
 	if (ri < rest_count)
 	{
-		return KOMMANDO_ERR_TOO_MANY_ARGS;
+		result = KOMMANDO_ERR_TOO_MANY_ARGS;
+		goto cleanup;
 	}
 
 	kommando_flags_apply_defaults(flags, flag_count);
@@ -333,40 +398,34 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 	{
 		if (flags[j].required && !flag_set[j])
 		{
-			return KOMMANDO_ERR_MISSING_FLAG;
+			result = KOMMANDO_ERR_MISSING_FLAG;
+			goto cleanup;
 		}
 	}
 
 	for (size_t p = 0; p < pos_count; p++)
 	{
-		size_t collected = 0;
-
-		if (kommando_is_list_type(positionals[p].type))
+		if (pos_seen[p] < positionals[p].min_count)
 		{
-			collected = ((kommando_list*)positionals[p].target)->size;
-		}
-		else if (positionals[p].required)
-		{
-			switch (positionals[p].type)
-			{
-			case KOMMANDO_FLAG_STRING:
-				collected = (*(const char**)positionals[p].target) ? 1 : 0;
-				break;
-			case KOMMANDO_FLAG_INT:
-				collected = (*(int*)positionals[p].target) ? 1 : 0;
-				break;
-			default:
-				break;
-			}
-		}
-
-		if (collected < positionals[p].min_count)
-		{
-			return KOMMANDO_ERR_MISSING_POSITIONAL;
+			result = KOMMANDO_ERR_MISSING_POSITIONAL;
+			goto cleanup;
 		}
 	}
 
-	return KOMMANDO_OK;
+cleanup:
+	if (pos_seen != pos_seen_inline)
+	{
+		free(pos_seen);
+	}
+	if (flag_set != flag_set_inline)
+	{
+		free(flag_set);
+	}
+	if (rest != rest_inline)
+	{
+		free((void*)rest);
+	}
+	return result;
 }
 
 kommando_result kommando_parse(kommando_cmd* cmd, int argc, const char** argv)
