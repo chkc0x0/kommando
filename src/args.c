@@ -1,105 +1,177 @@
-#include "kommando/args.h"
-#include "types.h"
-#include <stdio.h>
+#include "args.h"
 #include <stdlib.h>
 #include <string.h>
 
-kommando_flag* kommando_flag_find_long(kommando_flag* flags, size_t flagCount,
-									   const char* name)
+static kommando_flag* kommando_flag_find_long(kommando_flag* f, size_t n, const char* name, size_t len)
 {
-	for (size_t i = 0; i < flagCount; i++)
+	for (size_t i = 0; i < n; i++)
 	{
-		if (strcmp(flags[i].long_name, name) == 0)
+		if (f[i].long_name && strlen(f[i].long_name) == len &&
+			memcmp(f[i].long_name, name, len) == 0)
 		{
-			return &flags[i];
+			return &f[i];
 		}
 	}
-
-	return NULL;
+	return nullptr;
 }
 
-int kommando_flags_parse(kommando_flag* flags, size_t flagCount, int argc,
-						 const char** argv)
+static kommando_flag* kommando_flag_find_short(kommando_flag* f, size_t n, char c)
 {
-	int i = 0;
-	bool double_dash = false;
-
-	while (i < argc && !double_dash)
+	for (size_t i = 0; i < n; i++)
 	{
-		// we modify it a bit
-		char* arg = strdup(argv[i]);
+		if (f[i].short_name == c)
+		{
+			return &f[i];
+		}
+	}
+	return nullptr;
+}
+
+static kommando_result kommando_flag_set(kommando_flag* f, const char* value)
+{
+	switch (f->type)
+	{
+	case KOMMANDO_FLAG_BOOL:
+		*(bool*)f->target = ((value ? (strcmp(value, "false") != 0) : 1) != 0);
+		break;
+	case KOMMANDO_FLAG_INT:
+		if (!value)
+		{
+			return KOMMANDO_ERR_MISSING_VALUE;
+		}
+		*(int*)f->target = atoi(value);
+		break;
+	case KOMMANDO_FLAG_STRING:
+		if (!value)
+		{
+			return KOMMANDO_ERR_MISSING_VALUE;
+		}
+		*(const char**)f->target = value;
+		break;
+	default:
+		break;
+	}
+	return KOMMANDO_OK;
+}
+
+static void kommando_flags_apply_defaults(kommando_flag* flags, size_t count)
+{
+	for (size_t i = 0; i < count; i++)
+	{
+		if (!flags[i].default_val)
+		{
+			continue;
+		}
+		switch (flags[i].type)
+		{
+		case KOMMANDO_FLAG_BOOL:
+			*(bool*)flags[i].target = *(const bool*)flags[i].default_val;
+			break;
+		case KOMMANDO_FLAG_INT:
+			*(int*)flags[i].target = *(const int*)flags[i].default_val;
+			break;
+		case KOMMANDO_FLAG_STRING:
+			*(const char**)flags[i].target = *(const char* const*)flags[i].default_val;
+			break;
+		default:
+			break;
+		}
+	}
+}
+
+kommando_result kommando_flags_parse(kommando_flag* flags, size_t count, int argc,
+									 const char** argv)
+{
+	bool set[count];
+	memset(set, 0, sizeof(set));
+
+	int i = 1;
+
+	while (i < argc)
+	{
+		const char* arg = argv[i];
 		size_t arg_len = strlen(arg);
 
-		if (arg_len == 2 && arg[0] == '-' && arg[1] == '-')
+		if (arg_len == 2 && arg[0] == '0' && arg[1] == '-')
 		{
-			double_dash = true;
-			goto cleanup;
+			break;
 		}
 
 		if (arg_len > 2 && arg[0] == '-' && arg[1] == '-')
 		{
-			char* arg_name = arg + 2;
-			const char* arg_val;
+			const char* name = arg + 2;
+			const char* eq = strchr(name, '=');
+			size_t name_len = eq ? (size_t)(eq - name) : strlen(name);
+			const char* value = eq ? eq + 1 : nullptr;
 
-			char* equals = strchr(arg, '=');
-			bool value_inline = equals != NULL;
-
-			if (value_inline)
+			kommando_flag* f = kommando_flag_find_long(flags, count, name, name_len);
+			if (!f)
 			{
-				*equals = '\0';
-				arg_val = equals + 1;
-			}
-
-			kommando_flag* flag = kommando_flag_find_long(flags, flagCount, arg_name);
-			if (flag == NULL)
-			{
-				free(arg);
 				return KOMMANDO_ERR_UNKNOWN_FLAG;
 			}
 
-			if (flag->type == KOMMANDO_FLAG_BOOL)
-			{
-				if (value_inline)
-				{
-					*(bool*)flag->target = (strcmp(arg_val, "false") != 0);
-				}
-				else
-				{
-					*(bool*)flag->target = true;
-				}
-				i++;
-			}
-			else
-			{
-				if (!value_inline)
-				{
-					if (i + 1 >= argc)
-					{
-						free(arg);
-						return KOMMANDO_ERR_MISSING_VALUE;
-					}
+			size_t idx = (size_t)(f - flags);
 
-					arg_val = argv[++i];
-				}
-
-				if (flag->type == KOMMANDO_FLAG_STRING)
+			if (f->type != KOMMANDO_FLAG_BOOL && !value)
+			{
+				if (i + 1 >= argc)
 				{
-					char** target_string = (char**)flag->target;
-					free(*target_string);
-					*target_string = strdup(arg_val);
+					return KOMMANDO_ERR_MISSING_VALUE;
 				}
-				else
-				{
-					*(int*)flag->target = atoi(arg_val);
-				}
+				value = argv[++i];
 			}
 
-			goto cleanup;
+			kommando_result r = kommando_flag_set(f, value);
+			if (r != KOMMANDO_OK)
+			{
+				return r;
+			}
+			set[idx] = true;
+			i++;
+			continue;
 		}
 
-	cleanup:
+		if (arg_len >= 2 && arg [0] == '-' && arg[1] != '-')
+		{
+			kommando_flag* f = kommando_flag_find_short(flags, count, arg[1]);
+			if (!f)
+			{
+				return KOMMANDO_ERR_UNKNOWN_FLAG;
+			}
+
+			size_t idx = (size_t)(f - flags);
+			const char* value = (arg[2] == '=') ? arg + 3 : nullptr;
+
+			if (f->type != KOMMANDO_FLAG_BOOL && !value)
+			{
+				if (i + 1 >= argc)
+				{
+					return KOMMANDO_ERR_MISSING_VALUE;
+				}
+				value = argv[++i];
+			}
+
+			kommando_result r = kommando_flag_set(f, value);
+			if (r != KOMMANDO_OK)
+			{
+				return r;
+			}
+			set[idx] = true;
+			i++;
+			continue;
+		}
+
 		i++;
-		free(arg);
+	}
+
+	kommando_flags_apply_defaults(flags, count);
+
+	for (size_t j = 0; j < count; j++)
+	{
+		if (flags[j].required && !set[j])
+		{
+			return KOMMANDO_ERR_MISSING_FLAG;
+		}
 	}
 
 	return KOMMANDO_OK;

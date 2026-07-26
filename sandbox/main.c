@@ -39,13 +39,23 @@ static kommando_flag flags[] = {
 
 int main(int argc, const char** argv)
 {
-	int result =
-		kommando_flags_parse(flags, sizeof(flags) / sizeof(kommando_flag), argc, argv);
+	kommando_result result =
+		kommando_flags_parse(flags, sizeof(flags) / sizeof(*flags), argc, argv);
 
-	for (size_t i = 0; i < opts.times; i++)
-    {
-		printf("hello %s %s\n", opts.name, (int)opts.verbose ? "(verbose)" : "");
+	if (result != KOMMANDO_OK)
+	{
+		fprintf(stderr, "error: %s\n",
+				result == KOMMANDO_ERR_UNKNOWN_FLAG	   ? "unknown flag"
+				: result == KOMMANDO_ERR_MISSING_VALUE ? "missing value for flag"
+				: result == KOMMANDO_ERR_MISSING_FLAG  ? "missing required flag"
+													   : "parse error");
+		return 1;
 	}
 
-	return result;
+	printf("name=%s times=%d verbose=%d\n", opts.name, opts.times, (int)opts.verbose);
+	for (int i = 0; i < opts.times; i++)
+	{
+		printf("hello, %s!\n", opts.name);
+	}
+	return 0;
 }
