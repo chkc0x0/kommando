@@ -76,7 +76,7 @@ static kommando_cmd subs[] = {
 static kommando_cmd root = {
 	.name = "greet",
 	.help = "for greeting",
-	.flags = say_flags + 2,
+	.flags = say_flags + 3,
 	.flag_count = 3,
 	.subcommands = subs,
 	.subcommand_count = 2,
@@ -87,6 +87,7 @@ int main(int argc, const char** argv)
 	kommando_cmd_finalize(&root);
 	kommando_result r = kommando_parse(&root, argc, argv);
 
-	printf("%s %d %d %d %d %d\n", opts.name, opts.times, opts.verbose, opts.verbose2, opts.verbose3, opts.queue);
+	printf("%s %d %d %d %d %d\n", opts.name, opts.times, opts.verbose, opts.verbose2,
+		   opts.verbose3, opts.queue);
 	return r;
 }

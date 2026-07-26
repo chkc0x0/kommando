@@ -5,6 +5,7 @@
 
 #define KOMMANDO_INLINE_FLAGS 32
 #define KOMMANDO_INLINE_REST 32
+#define KOMMANDO_INLINE_SYNTH 8
 
 static kommando_flag* kommando_flag_find_long(kommando_flag* f, size_t n, const char* name, size_t len)
 {
@@ -132,14 +133,16 @@ static kommando_result kommando_positional_set(kommando_positional* p, const cha
 	return KOMMANDO_OK;
 }
 
-static kommando_result kommando_flags_consume(
+static kommando_result kommando_consume_flags(
 	kommando_flag* flags, size_t flagCount,
 	int argc, const char** argv,
 	bool strict,
 	bool* flagSet,
-	const char** rest, size_t* restCount)
+	const char** rest, size_t* restCount,
+	const char** synthFree, size_t* synthFreeCount)
 {
 	size_t rc = 0;
+	size_t sfc = 0;
 	int i = 1;
 
 	while (i < argc)
@@ -198,6 +201,9 @@ static kommando_result kommando_flags_consume(
 		{
 			const char* cur = arg + 1;
 
+			char synth_buf[256];
+			size_t synth_len = 0;
+
 			while (*cur)
 			{
 				kommando_flag* flag = kommando_flag_find_short(flags, flagCount, *cur);
@@ -207,9 +213,24 @@ static kommando_result kommando_flags_consume(
 					{
 						return KOMMANDO_ERR_UNKNOWN_FLAG;
 					}
-					
-					rest[rc++] = arg;
-					goto next_arg;
+					synth_buf[synth_len++] = *cur;
+					cur++;
+					continue;
+				}
+
+				if (synth_len > 0)
+				{
+					synth_buf[synth_len] = '\0';
+					char* synth = malloc(synth_len + 2);
+					if (!synth)
+					{
+						return KOMMANDO_ERR_OOM;
+					}
+					synth[0] = '-';
+					memcpy(synth + 1, synth_buf, synth_len + 1);
+					synthFree[sfc++] = synth;
+					rest[rc++] = synth;
+					synth_len = 0;
 				}
 
 				size_t idx = (size_t)(flag - flags);
@@ -251,6 +272,20 @@ static kommando_result kommando_flags_consume(
 				flagSet[idx] = true;
 			}
 
+			if (synth_len > 0)
+			{
+				synth_buf[synth_len] = '\0';
+				char* synth = malloc(synth_len + 2);
+				if (!synth)
+				{
+					return KOMMANDO_ERR_OOM;
+				}
+				synth[0] = '-';
+				memcpy(synth + 1, synth_buf, synth_len + 1);
+				synthFree[sfc++] = synth;
+				rest[rc++] = synth;
+			}
+
 			i++;
 			continue;
 		}
@@ -259,7 +294,6 @@ static kommando_result kommando_flags_consume(
 		i++;
 		continue;
 
-next_arg:
 		i++;
 	}
 
@@ -269,6 +303,7 @@ next_arg:
 	}
 
 	*restCount = rc;
+	*synthFreeCount = sfc;
 	return KOMMANDO_OK;
 }
 
@@ -314,22 +349,19 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 		}
 		size_t rest_count = 0;
 
-		kommando_result r = kommando_flags_consume(
+		const char* synth_inline[KOMMANDO_INLINE_SYNTH];
+		const char** synth_free = synth_inline;
+		size_t synth_count = 0;
+
+		kommando_result r = kommando_consume_flags(
 			cmd->flags, cmd->flag_count,
 			argc, argv, false,
-			flag_set, rest, &rest_count);
+			flag_set, rest, &rest_count,
+			synth_free, &synth_count);
 
 		if (r != KOMMANDO_OK)
 		{
-			if (rest != rest_inline)
-			{
-				free((void*)rest);
-			}
-			if (flag_set != flag_set_inline)
-			{
-				free(flag_set);
-			}
-			return r;
+			goto descent_cleanup;
 		}
 
 		kommando_flags_apply_defaults(cmd->flags, cmd->flag_count, flag_set);
@@ -337,87 +369,84 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 		{
 			if (cmd->flags[j].required && !flag_set[j])
 			{
-				if (rest != rest_inline)
-				{
-					free((void*)rest);
-				}
-				if (flag_set != flag_set_inline)
-				{
-					free(flag_set);
-				}
-				return KOMMANDO_ERR_MISSING_FLAG;
+				r = KOMMANDO_ERR_MISSING_FLAG;
+				goto descent_cleanup;
 			}
 		}
 
-		if (flag_set != flag_set_inline)
 		{
-			free(flag_set);
-		}
-
-		int sub_rest_idx = -1;
-		int sub_cmd_idx = -1;
-		for (size_t n = 0; n < rest_count; n++)
-		{
-			for (size_t s = 0; s < cmd->subcommand_count; s++)
+			int sub_rest_idx = -1;
+			int sub_cmd_idx = -1;
+			for (size_t n = 0; n < rest_count; n++)
 			{
-				if (strcmp(cmd->subcommands[s].name, rest[n]) == 0)
+				for (size_t s = 0; s < cmd->subcommand_count; s++)
 				{
-					sub_rest_idx = (int)n;
-					sub_cmd_idx = (int)s;
+					if (strcmp(cmd->subcommands[s].name, rest[n]) == 0)
+					{
+						sub_rest_idx = (int)n;
+						sub_cmd_idx = (int)s;
+						break;
+					}
+				}
+				if (sub_rest_idx >= 0)
+				{
 					break;
 				}
 			}
-			if (sub_rest_idx >= 0)
+
+			if (sub_cmd_idx < 0)
 			{
-				break;
+				r = KOMMANDO_ERR_UNKNOWN_CMD;
+				goto descent_cleanup;
 			}
-		}
 
-		if (sub_cmd_idx < 0)
-		{
-			if (rest != rest_inline)
+			const char* filtered_inline[KOMMANDO_INLINE_REST];
+			const char** filtered = filtered_inline;
+			size_t filtered_count = 0;
+
+			if (rest_count > KOMMANDO_INLINE_REST)
 			{
-				free((void*)rest);
-			}
-			return KOMMANDO_ERR_UNKNOWN_CMD;
-		}
-
-		const char* filtered_inline[KOMMANDO_INLINE_REST];
-		const char** filtered = filtered_inline;
-		size_t filtered_count = 0;
-
-		if (rest_count > KOMMANDO_INLINE_REST)
-		{
-			filtered = (const char**)malloc((rest_count + 1) * sizeof(const char*));
-			if (!filtered)
-			{
-				if (rest != rest_inline)
+				filtered = (const char**)malloc((rest_count + 1) * sizeof(const char*));
+				if (!filtered)
 				{
-					free((void*)rest);
+					r = KOMMANDO_ERR_OOM;
+					goto descent_cleanup;
 				}
-				return KOMMANDO_ERR_OOM;
 			}
-		}
 
-		filtered[filtered_count++] = argv[0];
-		for (size_t n = 0; n < rest_count; n++)
-		{
-			if ((int)n != sub_rest_idx)
+			filtered[filtered_count++] = argv[0];
+			for (size_t n = 0; n < rest_count; n++)
 			{
-				filtered[filtered_count++] = rest[n];
+				if ((int)n != sub_rest_idx)
+				{
+					filtered[filtered_count++] = rest[n];
+				}
+			}
+
+			r = kommando_do_parse(
+				&cmd->subcommands[sub_cmd_idx], leaf, (int)filtered_count, filtered);
+			if (filtered != filtered_inline)
+			{
+				free((void*)filtered);
 			}
 		}
 
+descent_cleanup:
+		for (size_t s = 0; s < synth_count; s++)
+		{
+			free((void*)synth_free[s]);
+		}
+		if (synth_free != synth_inline)
+		{
+			free((void*)synth_free);
+		}
 		if (rest != rest_inline)
 		{
 			free((void*)rest);
 		}
-
-		r = kommando_do_parse(
-			&cmd->subcommands[sub_cmd_idx], leaf, (int)filtered_count, filtered);
-		if (filtered != filtered_inline)
+		if (flag_set != flag_set_inline)
 		{
-			free((void*)filtered);
+			free(flag_set);
 		}
 		return r;
 	}
@@ -459,6 +488,10 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 	}
 	size_t rest_count = 0;
 
+	const char* synth_inline[KOMMANDO_INLINE_SYNTH];
+	const char** synth_free = synth_inline;
+	size_t synth_count = 0;
+
 	size_t pos_seen_inline[KOMMANDO_INLINE_FLAGS];
 	size_t* pos_seen = pos_seen_inline;
 	if (pos_count > KOMMANDO_INLINE_FLAGS)
@@ -466,6 +499,10 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 		pos_seen = malloc(pos_count * sizeof(size_t));
 		if (!pos_seen)
 		{
+			if (synth_free != synth_inline)
+			{
+				free((void*)synth_free);
+			}
 			if (rest != rest_inline)
 			{
 				free((void*)rest);
@@ -502,52 +539,55 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 		}
 	}
 
-	result = kommando_flags_consume(
+	result = kommando_consume_flags(
 		flags, flag_count,
 		argc, argv, true,
-		flag_set, rest, &rest_count);
+		flag_set, rest, &rest_count,
+		synth_free, &synth_count);
 
 	if (result != KOMMANDO_OK)
 	{
-		goto cleanup;
+		goto leaf_cleanup;
 	}
 
-	size_t ri = 0;
-	size_t pos_idx = 0;
-	size_t pos_collected = 0;
-
-	while (ri < rest_count && pos_idx < pos_count)
 	{
-		kommando_positional* pos = &positionals[pos_idx];
+		size_t ri = 0;
+		size_t pos_idx = 0;
+		size_t pos_collected = 0;
 
-		if (pos->max_count > 0 && pos_collected >= pos->max_count)
+		while (ri < rest_count && pos_idx < pos_count)
 		{
-			pos_idx++;
-			pos_collected = 0;
+			kommando_positional* pos = &positionals[pos_idx];
 
-			if (pos_idx >= pos_count)
+			if (pos->max_count > 0 && pos_collected >= pos->max_count)
 			{
-				result = KOMMANDO_ERR_TOO_MANY_ARGS;
-				goto cleanup;
+				pos_idx++;
+				pos_collected = 0;
+
+				if (pos_idx >= pos_count)
+				{
+					result = KOMMANDO_ERR_TOO_MANY_ARGS;
+					goto leaf_cleanup;
+				}
+				pos = &positionals[pos_idx];
 			}
-			pos = &positionals[pos_idx];
+
+			kommando_result set_r = kommando_positional_set(pos, rest[ri]);
+			if (set_r != KOMMANDO_OK)
+			{
+				result = set_r;
+				goto leaf_cleanup;
+			}
+			pos_seen[pos_idx]++;
+			pos_collected++;
+			ri++;
 		}
 
-		kommando_result set_r = kommando_positional_set(pos, rest[ri]);
-		if (set_r != KOMMANDO_OK)
+		if (ri < rest_count)
 		{
-			result = set_r;
-			goto cleanup;
+			result = KOMMANDO_ERR_TOO_MANY_ARGS;
+			goto leaf_cleanup;
 		}
-		pos_seen[pos_idx]++;
-		pos_collected++;
-		ri++;
-	}
-
-	if (ri < rest_count)
-	{
-		result = KOMMANDO_ERR_TOO_MANY_ARGS;
-		goto cleanup;
 	}
 
 	kommando_flags_apply_defaults(flags, flag_count, flag_set);
@@ -557,7 +597,7 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 		if (flags[j].required && !flag_set[j])
 		{
 			result = KOMMANDO_ERR_MISSING_FLAG;
-			goto cleanup;
+			goto leaf_cleanup;
 		}
 	}
 
@@ -566,14 +606,22 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 		if (pos_seen[p] < positionals[p].min_count)
 		{
 			result = KOMMANDO_ERR_MISSING_POSITIONAL;
-			goto cleanup;
+			goto leaf_cleanup;
 		}
 	}
 
-cleanup:
+leaf_cleanup:
 	if (pos_seen != pos_seen_inline)
 	{
 		free(pos_seen);
+	}
+	for (size_t s = 0; s < synth_count; s++)
+	{
+		free((void*)synth_free[s]);
+	}
+	if (synth_free != synth_inline)
+	{
+		free((void*)synth_free);
 	}
 	if (flag_set != flag_set_inline)
 	{
