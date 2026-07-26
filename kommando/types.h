@@ -42,7 +42,24 @@ typedef struct
 	kommando_flag_type type;
 	void* target;
 	bool required;
+	size_t min_count;
+	size_t max_count;
 } kommando_positional;
+
+typedef struct
+{
+	const char* name;
+	const char* help;
+
+	kommando_flag* flags;
+	size_t flag_count;
+
+	kommando_positional* positionals;
+	size_t positional_count;
+	
+	struct kommando_cmd* subcommands;
+	size_t subcommand_count;
+} kommando_cmd;
 
 // should this be opaque?
 // of course, what would it be otherwise?
