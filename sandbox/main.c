@@ -1,10 +1,14 @@
 #include "kommando/args.h"
+#include <stdio.h>
 
 typedef struct
 {
 	const char* name;
 	int times;
 	bool verbose;
+	bool verbose2;
+	bool verbose3;
+	int queue;
 } greet_opts_t;
 
 static greet_opts_t opts = {nullptr};
@@ -33,6 +37,27 @@ static kommando_flag say_flags[] = {
 		.target = &opts.verbose,
 		.help = "print extra output",
 	},
+	{
+		.long_name = "verbose",
+		.short_name = 'z',
+		.type = KOMMANDO_FLAG_BOOL,
+		.target = &opts.verbose2,
+		.help = "print extra output",
+	},
+	{
+		.long_name = "verbose",
+		.short_name = 'x',
+		.type = KOMMANDO_FLAG_BOOL,
+		.target = &opts.verbose3,
+		.help = "print extra output",
+	},
+	{
+		.long_name = "verbose",
+		.short_name = 'q',
+		.type = KOMMANDO_FLAG_COUNT,
+		.target = &opts.queue,
+		.help = "print extra output",
+	},
 };
 
 static kommando_cmd subs[] = {
@@ -40,7 +65,7 @@ static kommando_cmd subs[] = {
 		.name = "say",
 		.help = "from flags",
 		.flags = say_flags,
-		.flag_count = 3,
+		.flag_count = 6,
 	},
 	{
 		.name = "ask",
@@ -57,5 +82,8 @@ static kommando_cmd root = {
 
 int main(int argc, const char** argv)
 {
-	return kommando_parse(&root, argc, argv);
+	kommando_result r = kommando_parse(&root, argc, argv);
+
+	printf("%d %d %d %d\n", opts.verbose, opts.verbose2, opts.verbose3, opts.queue);
+	return r;
 }

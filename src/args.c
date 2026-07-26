@@ -49,6 +49,9 @@ static kommando_result kommando_flag_set(kommando_flag* f, const char* value)
 		}
 		*(const char**)f->target = value;
 		break;
+	case KOMMANDO_FLAG_COUNT:
+		(*(int*)f->target)++;
+		break;
 	default:
 		break;
 	}
@@ -73,6 +76,9 @@ static void kommando_flags_apply_defaults(kommando_flag* flags, size_t count)
 			break;
 		case KOMMANDO_FLAG_STRING:
 			*(const char**)flags[i].target = *(const char* const*)flags[i].default_val;
+			break;
+		case KOMMANDO_FLAG_COUNT:
+			*(int*)flags[i].target = *(const int*)flags[i].default_val;
 			break;
 		default:
 			break;
@@ -203,7 +209,8 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 
 			size_t idx = (size_t)(flag - flags);
 
-			if (flag->type != KOMMANDO_FLAG_BOOL && !value)
+			if (flag->type != KOMMANDO_FLAG_BOOL &&
+				flag->type != KOMMANDO_FLAG_COUNT && !value)
 			{
 				if (i + 1 >= argc)
 				{
@@ -224,30 +231,56 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 
 		if (arg_len >= 2 && arg[0] == '-' && arg[1] != '-')
 		{
-			kommando_flag* flag = kommando_flag_find_short(flags, flag_count, arg[1]);
-			if (!flag)
-			{
-				return KOMMANDO_ERR_UNKNOWN_FLAG;
-			}
+			const char* cur = arg + 1;
 
-			size_t idx = (size_t)(flag - flags);
-			const char* value = (arg[2] == '=') ? arg + 3 : nullptr;
-
-			if (flag->type != KOMMANDO_FLAG_BOOL && !value)
+			while (*cur)
 			{
-				if (i + 1 >= argc)
+				kommando_flag* flag = kommando_flag_find_short(flags, flag_count, *cur);
+				if (!flag)
 				{
-					return KOMMANDO_ERR_MISSING_VALUE;
+					return KOMMANDO_ERR_UNKNOWN_FLAG;
 				}
-				value = argv[++i];
+
+				size_t idx = (size_t)(flag - flags);
+				cur++;
+
+				if (flag->type == KOMMANDO_FLAG_BOOL ||
+					flag->type == KOMMANDO_FLAG_COUNT)
+				{
+					kommando_flag_set(flag, nullptr);
+					flag_set[idx] = true;
+					continue;
+				}
+
+				// non-bool: value is rest of string after =, or next char
+				const char* value = nullptr;
+				if (*cur == '=')
+				{
+					value = cur + 1;
+					cur += strlen(cur);
+				}
+				else if (*cur)
+				{
+					value = cur;
+					cur += strlen(cur);
+				}
+				else
+				{
+					if (i + 1 >= argc)
+					{
+						return KOMMANDO_ERR_MISSING_VALUE;
+					}
+					value = argv[++i];
+				}
+
+				kommando_result r = kommando_flag_set(flag, value);
+				if (r != KOMMANDO_OK)
+				{
+					return r;
+				}
+				flag_set[idx] = true;
 			}
 
-			kommando_result r = kommando_flag_set(flag, value);
-			if (r != KOMMANDO_OK)
-			{
-				return r;
-			}
-			flag_set[idx] = true;
 			i++;
 			continue;
 		}
