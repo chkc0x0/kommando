@@ -436,10 +436,6 @@ descent_cleanup:
 		{
 			free((void*)synth_free[s]);
 		}
-		if (synth_free != synth_inline)
-		{
-			free((void*)synth_free);
-		}
 		if (rest != rest_inline)
 		{
 			free((void*)rest);
@@ -499,10 +495,6 @@ descent_cleanup:
 		pos_seen = malloc(pos_count * sizeof(size_t));
 		if (!pos_seen)
 		{
-			if (synth_free != synth_inline)
-			{
-				free((void*)synth_free);
-			}
 			if (rest != rest_inline)
 			{
 				free((void*)rest);
@@ -618,10 +610,6 @@ leaf_cleanup:
 	for (size_t s = 0; s < synth_count; s++)
 	{
 		free((void*)synth_free[s]);
-	}
-	if (synth_free != synth_inline)
-	{
-		free((void*)synth_free);
 	}
 	if (flag_set != flag_set_inline)
 	{
