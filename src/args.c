@@ -7,7 +7,8 @@
 #define KOMMANDO_INLINE_REST 32
 #define KOMMANDO_INLINE_SYNTH 8
 
-static kommando_flag* kommando_flag_find_long(kommando_flag* f, size_t n, const char* name, size_t len)
+static kommando_flag* kommando_flag_find_long(kommando_flag* f, size_t n,
+											  const char* name, size_t len)
 {
 	for (size_t i = 0; i < n; i++)
 	{
@@ -63,7 +64,7 @@ static kommando_result kommando_flag_set(kommando_flag* f, const char* value)
 }
 
 static void kommando_flags_apply_defaults(kommando_flag* flags, size_t count,
-	const bool* flagSet)
+										  const bool* flagSet)
 {
 	for (size_t i = 0; i < count; i++)
 	{
@@ -133,13 +134,12 @@ static kommando_result kommando_positional_set(kommando_positional* p, const cha
 	return KOMMANDO_OK;
 }
 
-static kommando_result kommando_consume_flags(
-	kommando_flag* flags, size_t flagCount,
-	int argc, const char** argv,
-	bool strict,
-	bool* flagSet,
-	const char** rest, size_t* restCount,
-	const char** synthFree, size_t* synthFreeCount)
+static kommando_result kommando_consume_flags(kommando_flag* flags, size_t flagCount,
+											  int argc, const char** argv, bool strict,
+											  bool* flagSet, const char** rest,
+											  size_t* restCount, const char** synthFree,
+											  size_t synthFreeCapacity,
+											  size_t* synthFreeCount)
 {
 	size_t rc = 0;
 	size_t sfc = 0;
@@ -163,7 +163,8 @@ static kommando_result kommando_consume_flags(
 			size_t name_len = eq ? (size_t)(eq - name) : strlen(name);
 			const char* value = eq ? eq + 1 : nullptr;
 
-			kommando_flag* flag = kommando_flag_find_long(flags, flagCount, name, name_len);
+			kommando_flag* flag =
+				kommando_flag_find_long(flags, flagCount, name, name_len);
 			if (!flag)
 			{
 				if (strict)
@@ -177,8 +178,8 @@ static kommando_result kommando_consume_flags(
 
 			size_t idx = (size_t)(flag - flags);
 
-			if (flag->type != KOMMANDO_FLAG_BOOL &&
-				flag->type != KOMMANDO_FLAG_COUNT && !value)
+			if (flag->type != KOMMANDO_FLAG_BOOL && flag->type != KOMMANDO_FLAG_COUNT &&
+				!value)
 			{
 				if (i + 1 >= argc)
 				{
@@ -213,6 +214,10 @@ static kommando_result kommando_consume_flags(
 					{
 						return KOMMANDO_ERR_UNKNOWN_FLAG;
 					}
+					if (synth_len + 1 >= sizeof(synth_buf))
+					{
+						return KOMMANDO_ERR_TOO_MANY_ARGS;
+					}
 					synth_buf[synth_len++] = *cur;
 					cur++;
 					continue;
@@ -220,6 +225,10 @@ static kommando_result kommando_consume_flags(
 
 				if (synth_len > 0)
 				{
+					if (sfc >= synthFreeCapacity)
+					{
+						return KOMMANDO_ERR_OOM;
+					}
 					synth_buf[synth_len] = '\0';
 					char* synth = malloc(synth_len + 2);
 					if (!synth)
@@ -236,8 +245,7 @@ static kommando_result kommando_consume_flags(
 				size_t idx = (size_t)(flag - flags);
 				cur++;
 
-				if (flag->type == KOMMANDO_FLAG_BOOL ||
-					flag->type == KOMMANDO_FLAG_COUNT)
+				if (flag->type == KOMMANDO_FLAG_BOOL || flag->type == KOMMANDO_FLAG_COUNT)
 				{
 					kommando_flag_set(flag, nullptr);
 					flagSet[idx] = true;
@@ -274,6 +282,10 @@ static kommando_result kommando_consume_flags(
 
 			if (synth_len > 0)
 			{
+				if (sfc >= synthFreeCapacity)
+				{
+					return KOMMANDO_ERR_OOM;
+				}
 				synth_buf[synth_len] = '\0';
 				char* synth = malloc(synth_len + 2);
 				if (!synth)
@@ -291,9 +303,6 @@ static kommando_result kommando_consume_flags(
 		}
 
 		rest[rc++] = argv[i];
-		i++;
-		continue;
-
 		i++;
 	}
 
@@ -316,8 +325,8 @@ void kommando_cmd_finalize(kommando_cmd* cmd)
 	}
 }
 
-static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
-										 int argc, const char** argv)
+static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf, int argc,
+										 const char** argv)
 {
 	if (cmd->subcommands && cmd->subcommand_count > 0 && argc > 1)
 	{
@@ -351,13 +360,29 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 
 		const char* synth_inline[KOMMANDO_INLINE_SYNTH];
 		const char** synth_free = synth_inline;
+		size_t synth_capacity = KOMMANDO_INLINE_SYNTH;
+		if ((size_t)argc > KOMMANDO_INLINE_SYNTH)
+		{
+			synth_free = (const char**)malloc((size_t)argc * sizeof(const char*));
+			if (!synth_free)
+			{
+				if (rest != rest_inline)
+				{
+					free((void*)rest);
+				}
+				if (flag_set != flag_set_inline)
+				{
+					free(flag_set);
+				}
+				return KOMMANDO_ERR_OOM;
+			}
+			synth_capacity = (size_t)argc;
+		}
 		size_t synth_count = 0;
 
 		kommando_result r = kommando_consume_flags(
-			cmd->flags, cmd->flag_count,
-			argc, argv, false,
-			flag_set, rest, &rest_count,
-			synth_free, &synth_count);
+			cmd->flags, cmd->flag_count, argc, argv, false, flag_set, rest, &rest_count,
+			synth_free, synth_capacity, &synth_count);
 
 		if (r != KOMMANDO_OK)
 		{
@@ -414,7 +439,7 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 				}
 			}
 
-			filtered[filtered_count++] = argv[0];
+			filtered[filtered_count++] = cmd->subcommands[sub_cmd_idx].name;
 			for (size_t n = 0; n < rest_count; n++)
 			{
 				if ((int)n != sub_rest_idx)
@@ -423,18 +448,22 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 				}
 			}
 
-			r = kommando_do_parse(
-				&cmd->subcommands[sub_cmd_idx], leaf, (int)filtered_count, filtered);
+			r = kommando_do_parse(&cmd->subcommands[sub_cmd_idx], leaf,
+								  (int)filtered_count, filtered);
 			if (filtered != filtered_inline)
 			{
 				free((void*)filtered);
 			}
 		}
 
-descent_cleanup:
+	descent_cleanup:
 		for (size_t s = 0; s < synth_count; s++)
 		{
 			free((void*)synth_free[s]);
+		}
+		if (synth_free != synth_inline)
+		{
+			free((void*)synth_free);
 		}
 		if (rest != rest_inline)
 		{
@@ -486,6 +515,24 @@ descent_cleanup:
 
 	const char* synth_inline[KOMMANDO_INLINE_SYNTH];
 	const char** synth_free = synth_inline;
+	size_t synth_capacity = KOMMANDO_INLINE_SYNTH;
+	if ((size_t)argc > KOMMANDO_INLINE_SYNTH)
+	{
+		synth_free = (const char**)malloc((size_t)argc * sizeof(const char*));
+		if (!synth_free)
+		{
+			if (rest != rest_inline)
+			{
+				free((void*)rest);
+			}
+			if (flag_set != flag_set_inline)
+			{
+				free(flag_set);
+			}
+			return KOMMANDO_ERR_OOM;
+		}
+		synth_capacity = (size_t)argc;
+	}
 	size_t synth_count = 0;
 
 	size_t pos_seen_inline[KOMMANDO_INLINE_FLAGS];
@@ -495,6 +542,10 @@ descent_cleanup:
 		pos_seen = malloc(pos_count * sizeof(size_t));
 		if (!pos_seen)
 		{
+			if (synth_free != synth_inline)
+			{
+				free((void*)synth_free);
+			}
 			if (rest != rest_inline)
 			{
 				free((void*)rest);
@@ -531,11 +582,9 @@ descent_cleanup:
 		}
 	}
 
-	result = kommando_consume_flags(
-		flags, flag_count,
-		argc, argv, true,
-		flag_set, rest, &rest_count,
-		synth_free, &synth_count);
+	result =
+		kommando_consume_flags(flags, flag_count, argc, argv, true, flag_set, rest,
+							   &rest_count, synth_free, synth_capacity, &synth_count);
 
 	if (result != KOMMANDO_OK)
 	{
@@ -611,6 +660,10 @@ leaf_cleanup:
 	{
 		free((void*)synth_free[s]);
 	}
+	if (synth_free != synth_inline)
+	{
+		free((void*)synth_free);
+	}
 	if (flag_set != flag_set_inline)
 	{
 		free(flag_set);
@@ -638,7 +691,7 @@ kommando_result kommando_parse(kommando_cmd* cmd, int argc, const char** argv)
 }
 
 kommando_result kommando_parse_nodispatch(kommando_cmd* cmd, kommando_cmd** leaf,
-										   int argc, const char** argv)
+										  int argc, const char** argv)
 {
 	return kommando_do_parse(cmd, leaf, argc, argv);
 }
