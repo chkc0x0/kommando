@@ -92,7 +92,7 @@ kommando_result kommando_flags_parse(kommando_flag* flags, size_t count, int arg
 		const char* arg = argv[i];
 		size_t arg_len = strlen(arg);
 
-		if (arg_len == 2 && arg[0] == '0' && arg[1] == '-')
+		if (arg_len == 2 && arg[0] == '-' && arg[1] == '-')
 		{
 			break;
 		}

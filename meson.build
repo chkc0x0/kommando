@@ -5,7 +5,7 @@ project(
     default_options: ['c_std=c23'],
 )
 
-sources = ['src/args.c']
+sources = ['src/args.c', 'src/list.c']
 
 kommando_lib = library(
     'kommando',

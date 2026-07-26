@@ -45,9 +45,11 @@ typedef struct
 } kommando_positional;
 
 // should this be opaque?
+// of course, what would it be otherwise?
 typedef struct
 {
 	void* data;
 	size_t size;
 	size_t cap;
+	size_t elem_size;
 } kommando_list;
