@@ -19,4 +19,6 @@ kommando_dep = declare_dependency(
     include_directories: include_directories('kommando'),
 )
 
+meson.override_dependency('kommando', kommando_dep)
+
 executable('sandbox', sources: 'sandbox/main.c', dependencies: kommando_dep)
