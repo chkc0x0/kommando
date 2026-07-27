@@ -18,7 +18,7 @@ kommando_result kommando_list_add(kommando_list* list, const void* elem)
 		void* new_data = realloc(list->data, new_cap * list->elem_size);
 		if (!new_data)
 		{
-			return KOMMANDO_ERR_MISSING_VALUE;
+			return KOMMANDO_ERR_INVALID_VALUE;
 		}
 		list->data = new_data;
 		list->cap = new_cap;
