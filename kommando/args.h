@@ -1,5 +1,9 @@
 #pragma once
 #include "types.h"
+#include <stddef.h>
+
+#define ko_arg_member(type, field) offsetof(type, field)
+#define ko_offset_none ((size_t)-1)
 
 typedef enum
 {
@@ -44,7 +48,7 @@ typedef struct
 	const char* long_name;
 	char short_name;
 	kommando_flag_type type;
-	void* target;
+	size_t target_offset;
 	const void* default_val;
 	const char* help;
 	bool required;
@@ -55,7 +59,7 @@ typedef struct
 	const char* name;
 	const char* help;
 	kommando_flag_type type;
-	void* target;
+	size_t target_offset;
 	bool required;
 	size_t min_count;
 	size_t max_count;

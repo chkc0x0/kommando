@@ -89,13 +89,28 @@ static kommando_flag* kommando_flag_find_short(kommando_flag* f, size_t n, char 
 	return nullptr;
 }
 
-static kommando_result kommando_flag_set(kommando_flag* f, const char* value,
+static inline void* kommando_arg_target(void* userData, size_t offset)
+{
+	if (offset == ko_offset_none)
+	{
+		return nullptr;
+	}
+	return (char*)userData + offset;
+}
+
+static kommando_result kommando_flag_set(kommando_flag* f, void* userData,
+										 const char* value,
 										 kommando_arg_err_info* errInfo)
 {
+	void* target = kommando_arg_target(userData, f->target_offset);
+	if (!target)
+	{
+		return KOMMANDO_OK;
+	}
 	switch (f->type)
 	{
 	case KOMMANDO_FLAG_BOOL:
-		*(bool*)f->target = ((value ? (strcmp(value, "false") != 0) : 1) != 0);
+		*(bool*)target = ((value ? (strcmp(value, "false") != 0) : 1) != 0);
 		break;
 	case KOMMANDO_FLAG_INT:
 		if (!value)
@@ -105,7 +120,7 @@ static kommando_result kommando_flag_set(kommando_flag* f, const char* value,
 			errInfo->offending_value = nullptr;
 			return KOMMANDO_ERR_ARG_PARSE;
 		}
-		*(int*)f->target = atoi(value);
+		*(int*)target = atoi(value);
 		break;
 	case KOMMANDO_FLAG_STRING:
 		if (!value)
@@ -115,10 +130,10 @@ static kommando_result kommando_flag_set(kommando_flag* f, const char* value,
 			errInfo->offending_value = nullptr;
 			return KOMMANDO_ERR_ARG_PARSE;
 		}
-		*(const char**)f->target = value;
+		*(const char**)target = value;
 		break;
 	case KOMMANDO_FLAG_COUNT:
-		(*(int*)f->target)++;
+		(*(int*)target)++;
 		break;
 	default:
 		break;
@@ -127,7 +142,7 @@ static kommando_result kommando_flag_set(kommando_flag* f, const char* value,
 }
 
 static void kommando_flags_apply_defaults(kommando_flag* flags, size_t count,
-										  const bool* flagSet)
+										  const bool* flagSet, void* user_data)
 {
 	for (size_t i = 0; i < count; i++)
 	{
@@ -135,19 +150,23 @@ static void kommando_flags_apply_defaults(kommando_flag* flags, size_t count,
 		{
 			continue;
 		}
+		void* target = kommando_arg_target(user_data, flags[i].target_offset);
+		if (!target) {
+			continue;
+}
 		switch (flags[i].type)
 		{
 		case KOMMANDO_FLAG_BOOL:
-			*(bool*)flags[i].target = *(const bool*)flags[i].default_val;
+			*(bool*)target = *(const bool*)flags[i].default_val;
 			break;
 		case KOMMANDO_FLAG_INT:
-			*(int*)flags[i].target = *(const int*)flags[i].default_val;
+			*(int*)target = *(const int*)flags[i].default_val;
 			break;
 		case KOMMANDO_FLAG_STRING:
-			*(const char**)flags[i].target = *(const char* const*)flags[i].default_val;
+			*(const char**)target = *(const char* const*)flags[i].default_val;
 			break;
 		case KOMMANDO_FLAG_COUNT:
-			*(int*)flags[i].target = *(const int*)flags[i].default_val;
+			*(int*)target = *(const int*)flags[i].default_val;
 			break;
 		default:
 			break;
@@ -160,19 +179,21 @@ static bool kommando_is_list_type(kommando_flag_type type)
 	return (type == KOMMANDO_FLAG_STRING_LIST || type == KOMMANDO_FLAG_INT_LIST) != 0;
 }
 
-static kommando_result kommando_positional_set(kommando_positional* p, const char* value)
+static kommando_result kommando_positional_set(kommando_positional* p, void* user_data,
+											   const char* value)
 {
+	void* target = kommando_arg_target(user_data, p->target_offset);
 	switch (p->type)
 	{
 	case KOMMANDO_FLAG_STRING:
-		*(const char**)p->target = value;
+		*(const char**)target = value;
 		break;
 	case KOMMANDO_FLAG_INT:
-		*(int*)p->target = atoi(value);
+		*(int*)target = atoi(value);
 		break;
 	case KOMMANDO_FLAG_STRING_LIST:
 	{
-		kommando_list* list = p->target;
+		kommando_list* list = target;
 		kommando_result r = kommando_list_add(list, (void*)&value);
 		if (r != KOMMANDO_OK)
 		{
@@ -182,7 +203,7 @@ static kommando_result kommando_positional_set(kommando_positional* p, const cha
 	}
 	case KOMMANDO_FLAG_INT_LIST:
 	{
-		kommando_list* list = p->target;
+		kommando_list* list = target;
 		int v = atoi(value);
 		kommando_result r = kommando_list_add(list, &v);
 		if (r != KOMMANDO_OK)
@@ -198,9 +219,10 @@ static kommando_result kommando_positional_set(kommando_positional* p, const cha
 }
 
 static kommando_result kommando_consume_flags(
-	kommando_flag* flags, size_t flagCount, int argc, const char** argv, bool strict,
-	bool* flagSet, const char** rest, size_t* restCount, const char** synthFree,
-	size_t synthFreeCapacity, size_t* synthFreeCount, kommando_arg_err_info* errInfo)
+	kommando_flag* flags, size_t flagCount, void* userData, int argc, const char** argv,
+	bool strict, bool* flagSet, const char** rest, size_t* restCount,
+	const char** synthFree, size_t synthFreeCapacity, size_t* synthFreeCount,
+	kommando_arg_err_info* errInfo)
 {
 	size_t rc = 0;
 	size_t sfc = 0;
@@ -255,7 +277,7 @@ static kommando_result kommando_consume_flags(
 				value = argv[++i];
 			}
 
-			kommando_result r = kommando_flag_set(flag, value, errInfo);
+			kommando_result r = kommando_flag_set(flag, userData, value, errInfo);
 			if (r != KOMMANDO_OK)
 			{
 				return r;
@@ -320,7 +342,7 @@ static kommando_result kommando_consume_flags(
 
 				if (flag->type == KOMMANDO_FLAG_BOOL || flag->type == KOMMANDO_FLAG_COUNT)
 				{
-					kommando_flag_set(flag, nullptr, errInfo);
+					kommando_flag_set(flag, userData, nullptr, errInfo);
 					flagSet[idx] = true;
 					continue;
 				}
@@ -348,7 +370,7 @@ static kommando_result kommando_consume_flags(
 					value = argv[++i];
 				}
 
-				kommando_result r = kommando_flag_set(flag, value, errInfo);
+				kommando_result r = kommando_flag_set(flag, userData, value, errInfo);
 				if (r != KOMMANDO_OK)
 				{
 					return r;
@@ -458,15 +480,16 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 		size_t synth_count = 0;
 
 		kommando_result r = kommando_consume_flags(
-			cmd->flags, cmd->flag_count, argc, argv, false, flag_set, rest, &rest_count,
-			synth_free, synth_capacity, &synth_count, errInfo);
+			cmd->flags, cmd->flag_count, cmd->user_data, argc, argv, false, flag_set,
+			rest, &rest_count, synth_free, synth_capacity, &synth_count, errInfo);
 
 		if (r != KOMMANDO_OK)
 		{
 			goto descent_cleanup;
 		}
 
-		kommando_flags_apply_defaults(cmd->flags, cmd->flag_count, flag_set);
+		kommando_flags_apply_defaults(cmd->flags, cmd->flag_count, flag_set,
+									  cmd->user_data);
 		for (size_t j = 0; j < cmd->flag_count; j++)
 		{
 			if (cmd->flags[j].required && !flag_set[j])
@@ -661,13 +684,15 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 			size_t elem = (positionals[p].type == KOMMANDO_FLAG_STRING_LIST)
 							  ? sizeof(const char*)
 							  : sizeof(int);
-			kommando_list_create(positionals[p].target, elem);
+			kommando_list* list =
+				kommando_arg_target(cmd->user_data, positionals[p].target_offset);
+			kommando_list_create(list, elem);
 		}
 	}
 
-	result = kommando_consume_flags(flags, flag_count, argc, argv, true, flag_set, rest,
-									&rest_count, synth_free, synth_capacity, &synth_count,
-									errInfo);
+	result = kommando_consume_flags(flags, flag_count, cmd->user_data, argc, argv, true,
+									flag_set, rest, &rest_count, synth_free,
+									synth_capacity, &synth_count, errInfo);
 
 	if (result != KOMMANDO_OK)
 	{
@@ -699,7 +724,8 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 				pos = &positionals[pos_idx];
 			}
 
-			kommando_result set_r = kommando_positional_set(pos, rest[ri]);
+			kommando_result set_r =
+				kommando_positional_set(pos, cmd->user_data, rest[ri]);
 			if (set_r != KOMMANDO_OK)
 			{
 				result = set_r;
@@ -720,7 +746,7 @@ static kommando_result kommando_do_parse(kommando_cmd* cmd, kommando_cmd** leaf,
 		}
 	}
 
-	kommando_flags_apply_defaults(flags, flag_count, flag_set);
+	kommando_flags_apply_defaults(flags, flag_count, flag_set, cmd->user_data);
 
 	for (size_t j = 0; j < flag_count; j++)
 	{
